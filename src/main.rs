@@ -128,7 +128,20 @@ fn process_src_file(file_path: &Path) {
     let re = regex::Regex::new(r"vk::CULL_MODE_([A-Z]*)").unwrap();
     source_code = re.replace_all(&source_code, |caps: &regex::Captures| format!("vk::CullModeFlags::{}", &caps[1])).into_owned();
 
+    source_code = source_code.replace("use ash::vk::Result::*;", "");
+    let re = regex::Regex::new(r"(?x)Error([a-z A-Z]*)\s=>\s").unwrap();
+    source_code = re.replace_all(&source_code, |caps: &regex::Captures| format!("vk::Result::ERROR_{} => ", &caps[1].to_shouty_snake_case())).into_owned();
+
+    source_code = source_code.replace("use vk::ImageType::*;", "");
+    let re = regex::Regex::new(r"(?x)\(([a-z A-Z 0-9]*),\s([a-z A-Z 0-9]*)\)([\s a-z A-Z _]*)=>\s").unwrap();
+    source_code = re.replace_all(&source_code, |caps: &regex::Captures| format!("({}, {}){}=> ", &caps[1].to_shouty_snake_case(), &caps[2], &caps[3])).into_owned();
+
     // fix snake case oddities
+    let re = regex::Regex::new(r"limits.max_image_dimension(\d)d").unwrap();
+    source_code = re.replace_all(&source_code, |caps: &regex::Captures| format!("limits.max_image_dimension{}_d", &caps[1])).into_owned();
+
+    source_code = source_code.replace("pso::Descriptor::Image(VIEW, layout)", "pso::Descriptor::Image(view, layout)");
+    source_code = source_code.replace("com::AttachmentClear::Color(INDEX, cv)", "com::AttachmentClear::Color(index, cv)");
     source_code = fix_snake_case_oddities(source_code);
 
     fs::write(file_path, source_code.into_bytes()).expect("Error writing source code back into file!");
