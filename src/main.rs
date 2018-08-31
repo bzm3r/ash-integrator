@@ -83,6 +83,42 @@ fn process_surface_extension_name_referrals(source_code: String) -> String {
     re.replace_all(&source_code, |caps: &regex::Captures| format!("ext::{}::name().to_str().unwrap()", &caps[1].to_camel_case())).into_owned()
 }
 
+fn make_conv_safe(source_code: String) -> String {
+    let original_map_vk_format =
+r#"pub fn map_vk_format(format: vk::Format) -> Option<format::Format> {
+    if (format as usize) < format::NUM_FORMATS &&
+        format != vk::Format::UNDEFINED
+    {
+        // Safe due to equivalence of HAL format values and Vulkan format values
+        Some(unsafe { mem::transmute(format) })
+    } else {
+        None
+    }
+}
+"#;
+    let safe_map_vk_format =
+r#"pub fn map_vk_format(vk_format: vk::Format) -> Option<format::Format> {
+    if (vk_format.as_raw() as usize) < format::NUM_FORMATS &&
+        vk_format != vk::Format::UNDEFINED
+    {
+        // Safe due to equivalence of HAL format values and Vulkan format values
+        Some(unsafe { mem::transmute(vk_format) })
+    } else {
+        None
+    }
+}
+"#;
+    source_code.replace(original_map_vk_format, safe_map_vk_format)
+}
+
+fn remove_vk_head_on_variable_names(mut source_code: String) -> String {
+    source_code = source_code.replace("VK_", "");
+    source_code = source_code.replace(r#""LAYER_LUNARG_standard_validation""#, r#""LAYER_LUNARG_standard_validation""#);
+    source_code = source_code.replace(r#"EXT_debug_report""#, r#"VK_EXT_debug_report"#);
+
+    source_code
+}
+
 fn process_src_file(file_path: &Path) {
     println!("-------------");
     println!("{}", file_path.to_string_lossy());
@@ -114,7 +150,7 @@ fn process_src_file(file_path: &Path) {
     // special cases
     println!("Fixing special cases");
     source_code = source_code.replace("vk::types", "vk");
-    source_code = source_code.replace("VK_", "");
+    source_code = remove_vk_head_on_variable_names(source_code);
     source_code = source_code.replace("vk::SwapchainFn", "vk::KhrSwapchainFn");
     source_code = source_code.replace("depth: vk::ClearDepthStencilValue", "depth_stencil: vk::ClearDepthStencilValue");
     source_code = source_code.replace("depth: conv::", "depth_stencil: conv::");
@@ -142,8 +178,13 @@ fn process_src_file(file_path: &Path) {
 
     source_code = source_code.replace("pso::Descriptor::Image(VIEW, layout)", "pso::Descriptor::Image(view, layout)");
     source_code = source_code.replace("com::AttachmentClear::Color(INDEX, cv)", "com::AttachmentClear::Color(index, cv)");
+
+    source_code = source_code.replace("vk::c_char", "std::os::raw::c_char");
+    source_code = source_code.replace("vk::c_void", "std::os::raw::c_void");
+
     source_code = fix_snake_case_oddities(source_code);
 
+    source_code = make_conv_safe(source_code);
     fs::write(file_path, source_code.into_bytes()).expect("Error writing source code back into file!");
 }
 
